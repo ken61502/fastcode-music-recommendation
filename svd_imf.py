@@ -1,7 +1,9 @@
+import time
+import itertools
 import numpy as np
 import scipy.sparse as sparse
+
 from scipy.sparse.linalg import spsolve
-import time
 
 
 def load_matrix(filename, num_users, num_items):
@@ -11,12 +13,12 @@ def load_matrix(filename, num_users, num_items):
     num_zeros = num_users * num_items
     for i, line in enumerate(open(filename, 'r')):
         user, item, count = line.strip().split('\t')
-        user = int(user)
-        item = int(item)
+        user = int(user) - 1
+        item = int(item) - 1
         count = float(count)
-        if user >= num_users:
+        if user > num_users:
             continue
-        if item >= num_items:
+        if item > num_items:
             continue
         if count != 0:
             counts[user, item] = count
@@ -30,10 +32,38 @@ def load_matrix(filename, num_users, num_items):
     counts = sparse.csr_matrix(counts)
     t1 = time.time()
     print 'Finished loading matrix in %f seconds' % (t1 - t0)
-    return counts
+    return counts, num_users * num_items - num_zeros
 
-# def partition_train_data(counts):
-    
+
+def partition_train_data(counts, nonzero, num_users, num_items, percent=0.8):
+    num_train = int(np.floor(nonzero * percent))
+    num_validate = int(nonzero - num_train)
+    shuffle_index = range(nonzero)
+    np.random.shuffle(shuffle_index)
+    validate_index = shuffle_index[:num_validate].sort()
+    validate_counts = sparse.lil_matrix((num_users, num_items), dtype=np.int32)
+    idx, curr = 0, 0
+    counts = sparse.lil_matrix(counts)
+    counts_coo = counts.tocoo()
+    for row, col, count in itertools.izip(counts_coo.row,
+                                          counts_coo.col,
+                                          counts_coo.data):
+        if idx < num_validate and validate_index[idx] == curr:
+            validate_counts[row, col] = count
+            counts[row, col] = 0
+            idx += 1
+        curr += 1
+    return counts.tocsr(), validate_counts.tocoo()
+
+
+def evaluate_error(counts, user_vectors, item_vectors):
+    counts_coo = counts.tocoo()
+    err = 0.0
+    for row, col, count in itertools.izip(counts_coo.row,
+                                          counts_coo.col,
+                                          counts_coo.data):
+        err += (user_vectors[row, :].dot(item_vectors[col, :]) - count) ** 2
+    return err
 
 
 class ImplicitMF():
@@ -106,7 +136,33 @@ class ImplicitMF():
 
 
 if __name__ == '__main__':
-    mf = ImplicitMF(
-            load_matrix('../../data/train_triplets_clean.txt', 100000, 1000)
-        )
+    counts, nonzero = load_matrix(
+        '../../data/train_triplets_clean.txt',
+        100000,
+        1000
+    )
+    counts, validates = partition_train_data(
+        counts,
+        nonzero,
+        100000,
+        1000,
+        0.8
+    )
+
+    ########################################################
+    #
+    # Add SVD code here
+    # Use counts to calculate user_vectors and item_vectors
+    # E.g.
+    # user_vectors, item_vectors = SVD(counts)
+    #
+    ########################################################
+
+    mf = ImplicitMF(counts, user_vectors, item_vectors)
     mf.train_model()
+
+    # Evaluate training and validation error
+    train_err = evaluate_error(counts, mf.user_vectors, mf.item_vectors)
+    val_err = evaluate_error(validates, mf.user_vectors, mf.item_vectors)
+    print 'Training Error:', train_err
+    print 'Validation Error:', val_err
