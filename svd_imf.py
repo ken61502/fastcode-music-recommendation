@@ -1,8 +1,22 @@
 import numpy as np
 import scipy.sparse as sparse
+from scipy.sparse.linalg import svds
 from scipy.sparse.linalg import spsolve
 import time
 
+NUM_USER = 100000
+NUM_SONG = 1000
+k = 40
+
+def svd(train_data_mat, num_users=NUM_USER, num_songs=NUM_SONG, factors=k):
+    print "start computing SVD...\n"
+    start = time.time()
+    U, S, VT = sparse.linalg.svds(train_data_mat, factors)
+    stop = time.time()
+    print "SVD done!\n"
+    print "time: " + str(stop - start) + " seconds\n"
+
+    return U, S.dot(VT)
 
 def load_matrix(filename, num_users, num_items):
     t0 = time.time()
