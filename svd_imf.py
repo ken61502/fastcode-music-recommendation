@@ -46,30 +46,37 @@ def load_matrix(filename, num_users, num_items):
     print 'Finished loading matrix in %f seconds' % (t1 - t0)
     return counts
 
+# def partition_train_data(counts):
+    
+
 
 class ImplicitMF():
 
-    def __init__(self, counts, num_factors=40, num_iterations=30,
-                 reg_param=0.8):
+    def __init__(
+        self,
+        counts,
+        user_vectors=None,
+        item_vectors=None,
+        num_factors=40,
+        num_iterations=30,
+        reg_param=0.8
+    ):
         self.counts = counts
         self.num_users = counts.shape[0]
         self.num_items = counts.shape[1]
         self.num_factors = num_factors
         self.num_iterations = num_iterations
         self.reg_param = reg_param
+        self.user_vectors = user_vectors
+        self.item_vectors = item_vectors
 
     def train_model(self):
-        # Initialize X, Y matrix randomly
-        # self.user_vectors = np.random.normal(size=(self.num_users,
-        #                                            self.num_factors))
-        # self.item_vectors = np.random.normal(size=(self.num_items,
-        #                                            self.num_factors))
-
-        # Initialize X, Y matrix with SVD
-        self.user_vectors = np.random.normal(size=(self.num_users,
-                                                   self.num_factors))
-        self.item_vectors = np.random.normal(size=(self.num_items,
-                                                   self.num_factors))
+        # Initialize X, Y matrix randomly if no Q, P is passed
+        if self.user_vectors is None or self.item_vectors is None:
+            self.user_vectors = np.random.normal(size=(self.num_users,
+                                                       self.num_factors))
+            self.item_vectors = np.random.normal(size=(self.num_items,
+                                                       self.num_factors))
 
         for i in xrange(self.num_iterations):
             t0 = time.time()
