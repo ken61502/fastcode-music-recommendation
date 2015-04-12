@@ -3,10 +3,17 @@ import itertools
 import numpy as np
 import scipy.sparse as sparse
 
+from scipy.sparse.linalg import svds
 from scipy.sparse.linalg import spsolve
 
+NUM_USER = 100000
+NUM_SONG = 1000
+NUM_ITER = 1
+K = 40
 
-def load_matrix(filename, num_users, num_items):
+
+def load_matrix(filename, num_users=NUM_USER, num_items=NUM_SONG):
+    print "Start to load matrix...\n"
     t0 = time.time()
     counts = np.zeros((num_users, num_items))
     total = 0.0
@@ -31,16 +38,30 @@ def load_matrix(filename, num_users, num_items):
     counts *= alpha
     counts = sparse.csr_matrix(counts)
     t1 = time.time()
-    print 'Finished loading matrix in %f seconds' % (t1 - t0)
+    print 'Finished loading matrix in %f seconds\n' % (t1 - t0)
+    print 'Total entry:', num_users * num_items
+    print 'Non-zeros:', num_users * num_items - num_zeros
     return counts, num_users * num_items - num_zeros
 
 
-def partition_train_data(counts, nonzero, num_users, num_items, percent=0.8):
+def partition_train_data(
+    counts,
+    nonzero,
+    percent=0.8,
+    num_users=NUM_USER,
+    num_items=NUM_SONG
+):
+    print "Start to partition data...\n"
+    t0 = time.time()
     num_train = int(np.floor(nonzero * percent))
     num_validate = int(nonzero - num_train)
+
     shuffle_index = range(nonzero)
     np.random.shuffle(shuffle_index)
-    validate_index = shuffle_index[:num_validate].sort()
+
+    validate_index = shuffle_index[:num_validate]
+    shuffle_index[:num_validate].sort()
+
     validate_counts = sparse.lil_matrix((num_users, num_items), dtype=np.int32)
     idx, curr = 0, 0
     counts = sparse.lil_matrix(counts)
@@ -53,17 +74,34 @@ def partition_train_data(counts, nonzero, num_users, num_items, percent=0.8):
             counts[row, col] = 0
             idx += 1
         curr += 1
+    t1 = time.time()
+    print 'Finished partitioning data in %f seconds\n' % (t1 - t0)
     return counts.tocsr(), validate_counts.tocoo()
+
+
+def svd(train_data_mat, num_users=NUM_USER, num_songs=NUM_SONG, factors=K):
+    print "start computing SVD...\n"
+    start = time.time()
+    U, S, VT = svds(train_data_mat, factors)
+    stop = time.time()
+    print "SVD done!\n"
+    print "Finished SVD in " + str(stop - start) + " seconds\n"
+    return U, np.diag(S).dot(VT).T
 
 
 def evaluate_error(counts, user_vectors, item_vectors):
     counts_coo = counts.tocoo()
+    numerator = 0
     err = 0.0
     for row, col, count in itertools.izip(counts_coo.row,
                                           counts_coo.col,
                                           counts_coo.data):
         err += (user_vectors[row, :].dot(item_vectors[col, :]) - count) ** 2
-    return err
+        numerator += 1
+    if numerator == 0:
+        return 0
+    else:
+        return err / numerator
 
 
 class ImplicitMF():
@@ -73,8 +111,8 @@ class ImplicitMF():
         counts,
         user_vectors=None,
         item_vectors=None,
-        num_factors=40,
-        num_iterations=30,
+        num_factors=K,
+        num_iterations=NUM_ITER,
         reg_param=0.8
     ):
         self.counts = counts
@@ -137,26 +175,14 @@ class ImplicitMF():
 
 if __name__ == '__main__':
     counts, nonzero = load_matrix(
-        '../../data/train_triplets_clean.txt',
-        100000,
-        1000
+        '../../data/sorted_train_data.txt',
     )
     counts, validates = partition_train_data(
         counts,
         nonzero,
-        100000,
-        1000,
-        0.8
     )
 
-    ########################################################
-    #
-    # Add SVD code here
-    # Use counts to calculate user_vectors and item_vectors
-    # E.g.
-    # user_vectors, item_vectors = SVD(counts)
-    #
-    ########################################################
+    user_vectors, item_vectors = svd(counts)
 
     mf = ImplicitMF(counts, user_vectors, item_vectors)
     mf.train_model()
