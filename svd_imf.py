@@ -190,6 +190,7 @@ if __name__ == '__main__':
     )
 
     user_vectors, item_vectors = svd(counts)
+
     train_err = evaluate_error(counts, user_vectors, item_vectors)
     print 'Training Error:', train_err
 
