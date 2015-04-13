@@ -9,10 +9,13 @@ from scipy.sparse.linalg import spsolve
 NUM_USER = 100000
 NUM_SONG = 1000
 NUM_ITER = 1
+alpha = None
 K = 40
 
 
 def load_matrix(filename, num_users=NUM_USER, num_items=NUM_SONG):
+    global alpha
+
     print "Start to load matrix...\n"
     t0 = time.time()
     counts = np.zeros((num_users, num_items))
@@ -96,7 +99,11 @@ def evaluate_error(counts, user_vectors, item_vectors):
     for row, col, count in itertools.izip(counts_coo.row,
                                           counts_coo.col,
                                           counts_coo.data):
-        err += (user_vectors[row, :].dot(item_vectors[col, :]) - count) ** 2
+        predict = user_vectors[row, :].dot(item_vectors[col, :])
+        if count > 0:
+            err += ((1 + alpha * count) * (predict - 1) ** 2)
+        else:
+            err += ((1 + alpha * count) * (predict - 0) ** 2)
         numerator += 1
     if numerator == 0:
         return 0
@@ -183,6 +190,8 @@ if __name__ == '__main__':
     )
 
     user_vectors, item_vectors = svd(counts)
+    train_err = evaluate_error(counts, user_vectors, item_vectors)
+    print 'Training Error:', train_err
 
     mf = ImplicitMF(counts, user_vectors, item_vectors)
     mf.train_model()
