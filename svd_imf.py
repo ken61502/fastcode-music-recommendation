@@ -8,10 +8,11 @@ from scipy.sparse.linalg import spsolve
 
 NUM_USER = 100000
 NUM_SONG = 1000
-NUM_ITER = 1
+NUM_ITER = 5
 alpha = None
 K = 40
 
+DETAIL_MODE = False
 
 def load_matrix(filename, num_users=NUM_USER, num_items=NUM_SONG):
     global alpha
@@ -34,7 +35,7 @@ def load_matrix(filename, num_users=NUM_USER, num_items=NUM_SONG):
             counts[user, item] = count
             total += count
             num_zeros -= 1
-        if i % 100000 == 0:
+        if DETAIL_MODE and i % 100000 == 0:
             print 'loaded %i counts...' % i
     alpha = num_zeros / total
     print 'alpha %.2f' % alpha
@@ -116,6 +117,7 @@ class ImplicitMF():
     def __init__(
         self,
         counts,
+        validates,
         user_vectors=None,
         item_vectors=None,
         num_factors=K,
@@ -123,6 +125,7 @@ class ImplicitMF():
         reg_param=0.8
     ):
         self.counts = counts
+        self.validates = validates
         self.num_users = counts.shape[0]
         self.num_items = counts.shape[1]
         self.num_factors = num_factors
@@ -149,6 +152,7 @@ class ImplicitMF():
             self.item_vectors = self.iteration(
                 False, sparse.csr_matrix(self.user_vectors)
             )
+            self.eval(i + 1)
             t1 = time.time()
             print 'iteration %i finished in %f seconds' % (i + 1, t1 - t0)
 
@@ -160,7 +164,8 @@ class ImplicitMF():
         lambda_eye = self.reg_param * sparse.eye(self.num_factors)
         solve_vecs = np.zeros((num_solve, self.num_factors))
 
-        t = time.time()
+        if DETAIL_MODE:
+            t = time.time()
         for i in xrange(num_solve):
             if user:
                 counts_i = self.counts[i].toarray()
@@ -173,16 +178,21 @@ class ImplicitMF():
             YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
             xu = spsolve(YTY + YTCuIY + lambda_eye, YTCupu)
             solve_vecs[i] = xu
-            if i % 1000 == 0:
+            if DETAIL_MODE and i % 1000 == 0:
                 print 'Solved %i vecs in %d seconds' % (i, time.time() - t)
                 t = time.time()
 
         return solve_vecs
 
+    def eval(self, ith):
+        train_err = evaluate_error(self.counts, self.user_vectors, self.item_vectors)
+        val_err = evaluate_error(self.validates, self.user_vectors, self.item_vectors)
+        print '[IMF] %i Training Error:' % ith, train_err
+        print '[IMF] %i Validation Error:' % ith, val_err
 
 if __name__ == '__main__':
     counts, nonzero = load_matrix(
-        '../../data/sorted_train_data.txt',
+        './data/sorted_train_data.txt',
     )
     counts, validates = partition_train_data(
         counts,
@@ -190,14 +200,12 @@ if __name__ == '__main__':
     )
 
     user_vectors, item_vectors = svd(counts)
+
+    print "user_vectors[%i][%i]" % (user_vectors.shape[0], user_vectors.shape[1])
+    print "item_vectors[%i][%i]\n" % (item_vectors.shape[0], item_vectors.shape[1])
+
     train_err = evaluate_error(counts, user_vectors, item_vectors)
-    print 'Training Error:', train_err
+    print '[SVD] Training Error:', train_err, "\n"
 
-    mf = ImplicitMF(counts, user_vectors, item_vectors)
+    mf = ImplicitMF(counts, validates, user_vectors, item_vectors)
     mf.train_model()
-
-    # Evaluate training and validation error
-    train_err = evaluate_error(counts, mf.user_vectors, mf.item_vectors)
-    val_err = evaluate_error(validates, mf.user_vectors, mf.item_vectors)
-    print 'Training Error:', train_err
-    print 'Validation Error:', val_err
