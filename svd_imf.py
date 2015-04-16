@@ -14,6 +14,7 @@ K = 40
 
 DETAIL_MODE = False
 
+
 def load_matrix(filename, num_users=NUM_USER, num_items=NUM_SONG):
     global alpha
 
@@ -185,8 +186,10 @@ class ImplicitMF():
         return solve_vecs
 
     def eval(self, ith):
-        train_err = evaluate_error(self.counts, self.user_vectors, self.item_vectors)
-        val_err = evaluate_error(self.validates, self.user_vectors, self.item_vectors)
+        train_err = evaluate_error(
+            self.counts, self.user_vectors, self.item_vectors)
+        val_err = evaluate_error(
+            self.validates, self.user_vectors, self.item_vectors)
         print '[IMF] %i Training Error:' % ith, train_err
         print '[IMF] %i Validation Error:' % ith, val_err
 
@@ -201,8 +204,12 @@ if __name__ == '__main__':
 
     user_vectors, item_vectors = svd(counts)
 
-    print "user_vectors[%i][%i]" % (user_vectors.shape[0], user_vectors.shape[1])
-    print "item_vectors[%i][%i]\n" % (item_vectors.shape[0], item_vectors.shape[1])
+    print "user_vectors[%i][%i]" % (
+        user_vectors.shape[0], user_vectors.shape[1]
+    )
+    print "item_vectors[%i][%i]\n" % (
+        item_vectors.shape[0], item_vectors.shape[1]
+    )
 
     train_err = evaluate_error(counts, user_vectors, item_vectors)
     print '[SVD] Training Error:', train_err, "\n"
