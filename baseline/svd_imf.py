@@ -103,9 +103,9 @@ def evaluate_error(counts, user_vectors, item_vectors):
                                           counts_coo.data):
         predict = user_vectors[row, :].dot(item_vectors[col, :])
         if count > 0:
-            err += ((1 + alpha * count) * (predict - 1) ** 2)
+            err += ((1 + count) * (predict - 1) ** 2)
         else:
-            err += ((1 + alpha * count) * (predict - 0) ** 2)
+            err += ((1 + count) * (predict - 0) ** 2)
         numerator += 1
     if numerator == 0:
         return 0
@@ -195,7 +195,7 @@ class ImplicitMF():
 
 if __name__ == '__main__':
     counts, nonzero = load_matrix(
-        './data/sorted_train_data.txt',
+        '../../data/sorted_train_data.txt',
     )
     counts, validates = partition_train_data(
         counts,
