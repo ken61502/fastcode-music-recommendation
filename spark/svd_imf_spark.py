@@ -16,18 +16,23 @@
 #
 
 """
-This is an example implementation of ALS for learning how to use Spark. Please refer to
-ALS in pyspark.mllib.recommendation for more conventional use.
+This is an example implementation of ALS for learning how to use Spark.
+Please refer to ALS in pyspark.mllib.recommendation for more conventional use.
 This example requires numpy (http://www.numpy.org/)
 """
 from __future__ import print_function
 
 import sys
+import itertools
 
 import numpy as np
 from numpy.random import rand
 from numpy import matrix
 from pyspark import SparkContext
+import scipy.sparse as sparse
+
+from scipy.sparse.linalg import svds
+from scipy.sparse.linalg import spsolve
 
 LAMBDA = 0.01   # regularization
 np.random.seed(42)
@@ -38,17 +43,40 @@ def rmse(R, ms, us):
     return np.sqrt(np.sum(np.power(diff, 2)) / M * U)
 
 
-def update(i, vec, mat, ratings):
-    uu = mat.shape[0]
-    ff = mat.shape[1]
+def evaluate_error(counts, user_vectors, item_vectors):
+    counts_coo = counts.tocoo()
+    numerator = 0
+    err = 0.0
+    for row, col, count in itertools.izip(counts_coo.row,
+                                          counts_coo.col,
+                                          counts_coo.data):
+        predict = user_vectors[row, :].dot(item_vectors[col, :])
+        if count > 0:
+            err += ((1 + count) * (predict - 1) ** 2)
+        else:
+            err += ((1 + count) * (predict - 0) ** 2)
+        numerator += 1
+    if numerator == 0:
+        return 0
+    else:
+        return err / numerator
 
-    XtX = mat.T * mat
-    Xty = mat.T * ratings[i, :].T
 
-    for j in range(ff):
-        XtX[j, j] += LAMBDA * uu
+def update(i, vec, fixed_vecs, ratings, YTY):
+    num_fixed = fixed_vecs.shape[0]
+    num_factors = fixed_vecs.shape[1]
 
-    return np.linalg.solve(XtX, Xty)
+    eye = sparse.eye(num_fixed)
+    lambda_eye = LAMBDA * sparse.eye(num_factors)
+
+    counts_i = vec.toarray()
+    CuI = sparse.diags(counts_i, [0])
+    pu = counts_i.copy()
+    pu[np.where(pu != 0)] = 1.0
+
+    YTCuIY = fixed_vecs.T.dot(CuI).dot(fixed_vecs)
+    YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+    return spsolve(YTY + YTCuIY + lambda_eye, YTCupu)
 
 
 if __name__ == "__main__":
@@ -58,8 +86,8 @@ if __name__ == "__main__":
     """
 
     print("""WARN: This is a naive implementation of ALS and is given as an
-      example. Please use the ALS method found in pyspark.mllib.recommendation for more
-      conventional use.""", file=sys.stderr)
+      example. Please use the ALS method found in pyspark.mllib.recommendation
+      for more conventional use.""", file=sys.stderr)
 
     sc = SparkContext(appName="PythonALS")
     M = int(sys.argv[1]) if len(sys.argv) > 1 else 100
@@ -71,31 +99,37 @@ if __name__ == "__main__":
     print("Running ALS with M=%d, U=%d, F=%d, iters=%d, partitions=%d\n" %
           (M, U, F, ITERATIONS, partitions))
 
-    R = matrix(rand(M, F)) * matrix(rand(U, F).T)
-    ms = matrix(rand(M, F))
-    us = matrix(rand(U, F))
 
     Rb = sc.broadcast(R)
     msb = sc.broadcast(ms)
     usb = sc.broadcast(us)
 
     for i in range(ITERATIONS):
+        mat = usb.value
+        XtX = mat.T.dot(mat)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value)) \
+               .map(lambda x:
+                    update(x, msb.value[x, :], usb.value, Rb.value, XtX)) \
                .collect()
         # collect() returns a list, so array ends up being
         # a 3-d array, we take the first 2 dims for the matrix
-        ms = matrix(np.array(ms)[:, :, 0])
+        ms = np.array(ms)[:, :, 0]
         msb = sc.broadcast(ms)
 
+        mat = msb.value
+        XtX = mat.T.dot(mat)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value.T)) \
+               .map(lambda x:
+                    update(x, usb.value[x, :], msb.value, Rb.value.T, XtX)) \
                .collect()
-        us = matrix(np.array(us)[:, :, 0])
+        us = np.array(us)[:, :, 0]
         usb = sc.broadcast(us)
 
-        error = rmse(R, ms, us)
+        train_error = evaluate_error(R, ms, us)
+        validate_error = evaluate_error(validate, ms, us)
         print("Iteration %d:" % i)
-        print("\nRMSE: %5.4f\n" % error)
+        print("\TrainERR: %5.4f, \ValidateERR: %5.4f\n" % (
+            train_error, validate_error)
+        )
 
     sc.stop()
