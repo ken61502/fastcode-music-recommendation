@@ -31,12 +31,77 @@ from pyspark import SparkContext
 
 LAMBDA = 0.01   # regularization
 np.random.seed(42)
+NUM_USER = 100000
+NUM_SONG = 1000
+NUM_ITER = 5
+NUM_PARTITION = 2
+K = 40
 
+# dirty global
+num_zeros = None
+alpha = None
+total = None
 
 def rmse(R, ms, us):
     diff = R - ms * us.T
     return np.sqrt(np.sum(np.power(diff, 2)) / M * U)
 
+def fill_maxtrix(line, counts):
+    global num_zeros
+    global total
+
+    user = int(line[0]) - 1
+    item = int(line[1]) - 1
+    count = float(line[2])
+
+    if user > NUM_USER:
+        continue
+    if item > NUM_SONG:
+        continue
+    if count != 0:
+        counts[user, item] = count
+        total += count
+        num_zeros -= 1
+
+def load_matrix(filename, sparkContext, num_users=NUM_USER, num_items=NUM_SONG):
+    global alpha
+    global total
+    global num_zeros
+
+    print "Start to load matrix...\n"
+    t0 = time.time()
+    counts = np.zeros((num_users, num_items))
+    total  = 0.0
+    num_zeros = num_users * num_items
+
+    url  = "s3n://spark-mllib/fastcode/data/" + filename
+    data = sparkContext.textFile(url)
+
+    data.map(lambda l: l.split('\t')).map(fill_maxtrix(l, counts))
+
+    alpha = num_zeros / total
+    print 'alpha %.2f' % alpha
+    counts *= alpha
+    counts = sparse.csr_matrix(counts)
+    t1 = time.time()
+    print 'Finished loading matrix in %f seconds\n' % (t1 - t0)
+    print 'Total entry:', num_users * num_items
+    print 'Non-zeros:', num_users * num_items - num_zeros
+    return counts, num_users * num_items - num_zeros    
+
+    counts = sparse.csr_matrix(counts)
+
+    return counts, num_users * num_items - num_zeros
+
+
+def svd(train_data_mat, num_users=NUM_USER, num_songs=NUM_SONG, factors=K):
+    print "start computing SVD...\n"
+    start = time.time()
+    U, S, VT = svds(train_data_mat, factors)
+    stop = time.time()
+    print "SVD done!\n"
+    print "Finished SVD in " + str(stop - start) + " seconds\n"
+    return U, np.diag(S).dot(VT).T
 
 def update(i, vec, mat, ratings):
     uu = mat.shape[0]
@@ -62,20 +127,23 @@ if __name__ == "__main__":
       conventional use.""", file=sys.stderr)
 
     sc = SparkContext(appName="PythonALS")
-    M = int(sys.argv[1]) if len(sys.argv) > 1 else 100
-    U = int(sys.argv[2]) if len(sys.argv) > 2 else 500
-    F = int(sys.argv[3]) if len(sys.argv) > 3 else 10
-    ITERATIONS = int(sys.argv[4]) if len(sys.argv) > 4 else 5
-    partitions = int(sys.argv[5]) if len(sys.argv) > 5 else 2
+    M = int(sys.argv[1]) if len(sys.argv) > 1 else NUM_SONG
+    U = int(sys.argv[2]) if len(sys.argv) > 2 else NUM_USER
+    F = int(sys.argv[3]) if len(sys.argv) > 3 else K
+    ITERATIONS = int(sys.argv[4]) if len(sys.argv) > 4 else NUM_ITER
+    partitions = int(sys.argv[5]) if len(sys.argv) > 5 else NUM_PARTITION
 
     print("Running ALS with M=%d, U=%d, F=%d, iters=%d, partitions=%d\n" %
           (M, U, F, ITERATIONS, partitions))
 
-    R = matrix(rand(M, F)) * matrix(rand(U, F).T)
-    ms = matrix(rand(M, F))
-    us = matrix(rand(U, F))
+    R, nonzero = load_matrix("sorted_train_data.txt", sc)
+    R, validates = partition_train_data(
+        counts,
+        nonzero,
+    )
+    us, ms = svd(R)
 
-    Rb = sc.broadcast(R)
+    Rb  = sc.broadcast(R)
     msb = sc.broadcast(ms)
     usb = sc.broadcast(us)
 
