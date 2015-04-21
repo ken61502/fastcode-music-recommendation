@@ -22,12 +22,11 @@ This example requires numpy (http://www.numpy.org/)
 """
 # from __future__ import print_function
 
-import sys
 import itertools
 import time
 
 import numpy as np
-from pyspark import SparkContext
+from pyspark import SparkContext, SparkConf, SparkFiles
 import scipy.sparse as sparse
 
 from scipy.sparse.linalg import svds
@@ -46,26 +45,17 @@ num_zeros = None
 alpha = None
 total = None
 
-
-def rmse(R, ms, us):
-    diff = R - ms * us.T
-    return np.sqrt(np.sum(np.power(diff, 2)) / M * U)
-
-
 def fill_maxtrix(line, counts):
     global num_zeros
     global total
 
+    # print line
     line = line.split('\t')
     user = int(line[0]) - 1
     item = int(line[1]) - 1
     count = float(line[2])
 
-    if user > NUM_USER:
-        continue
-    if item > NUM_SONG:
-        continue
-    if count != 0:
+    if count > 0.0:
         counts[user, item] = count
         total += count
         num_zeros -= 1
@@ -108,7 +98,7 @@ def partition_train_data(
 
 def load_matrix(
         filename,
-        sparkContext,
+        sc,
         num_users=NUM_USER,
         num_items=NUM_SONG
 ):
@@ -123,16 +113,21 @@ def load_matrix(
     total = 0.0
     num_zeros = num_users * num_items
 
-    # url = "s3n://spark-mllib/fastcode/data/" + filename
-    url = "../../data/" + filename
-    data = sparkContext.textFile(url)
+    url = "s3n://spark-mllib/fastcode/data/" + filename
+    # url = "../../data/" + filename
+    print 'loading... ' + url
+    # data = sc.textFile(url)
+    # data.map(lambda l: fill_maxtrix(l, counts))
 
-    data.map(lambda l: fill_maxtrix(l, counts))
+    sc.addFile(url)
+    with open(SparkFiles.get(filename)) as f:
+        for line in f:
+            fill_maxtrix(line, counts)
 
     alpha = num_zeros / total
     print 'alpha %.2f' % alpha
     counts *= alpha
-    counts = sparse.csr_matrix(counts)
+
     t1 = time.time()
     print 'Finished loading matrix in %f seconds\n' % (t1 - t0)
     print 'Total entry:', num_users * num_items
@@ -172,38 +167,86 @@ def evaluate_error(counts, user_vectors, item_vectors):
         return err / numerator
 
 
-def update(i, vec, fixed_vecs, ratings, YTY):
-    num_fixed = fixed_vecs.shape[0]
-    num_factors = fixed_vecs.shape[1]
+def update(i, vec, mat, R, YtY):
+    # uu = mat.shape[0]
+    # ff = mat.shape[1]
 
+    # XtX = mat.T.dot(mat)
+    # Xty = mat.T.dot(R[i, :].toarray().T)
+    # lambda_eye = LAMBDA * uu * sparse.eye(ff)
+    # # abc = XtX.dot(lambda_eye)
+    # bcd = mat.T.dot(LAMBDA * sparse.eye(uu))
+    # # for j in range(ff):
+    # #     XtX[j, j] += LAMBDA * uu
+
+    # return np.linalg.solve(XtX, Xty)
+
+    # print '1'
+    num_fixed = mat.shape[0]
+    num_factors = mat.shape[1]
+    # print '2'
     eye = sparse.eye(num_fixed)
     lambda_eye = LAMBDA * sparse.eye(num_factors)
-
-    counts_i = vec.toarray()
+    # print '3'
+    counts_i = R[i, :].toarray()
     CuI = sparse.diags(counts_i, [0])
     pu = counts_i.copy()
     pu[np.where(pu != 0)] = 1.0
+    # print '4', CuI.shape[0], CuI.shape[1]
+    # print '4', mat.shape[0], mat.shape[1]
 
-    YTCuIY = fixed_vecs.T.dot(CuI).dot(fixed_vecs)
-    YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
-    return spsolve(YTY + YTCuIY + lambda_eye, YTCupu)
+    YTCuI = mat.copy()
+    print counts_i.shape
+    for i in range(num_fixed):
+        YTCuI[i, :] = counts_i[0, i] * YTCuI[i, :]
 
+    # YTCuI = mat.T.dot(CuI)
+
+    # print '4.5', YTCuI.shape[0], YTCuI.shape[1]
+    YTCuIY = YTCuI.T.dot(mat)
+    # print '5'
+    YTCupu = sparse.csr_matrix(mat).T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+    # print '6'
+    return spsolve(YtY + YTCuIY + lambda_eye, YTCupu)
+    # result = np.linalg.solve(YTCuIY + lambda_eye, YTCupu)
+    # print '7'
+    # return result
+
+# def rmse(R, ms, us):
+#     diff = R - ms.dot(us.T)
+#     return np.sqrt(np.sum(np.power(diff, 2)) / NUM_SONG * NUM_USER)
+
+
+# def update(i, vec, mat, ratings):
+#     uu = mat.shape[0]
+#     ff = mat.shape[1]
+
+#     XtX = mat.T.dot(mat)
+#     Xty = mat.T.dot(ratings[i, :].toarray().T)
+
+#     for j in range(ff):
+#         XtX[j, j] += LAMBDA * uu
+
+#     return np.linalg.solve(XtX, Xty)
 
 if __name__ == "__main__":
 
     """
     Usage: als [M] [U] [F] [iterations] [partitions]"
     """
+    appName = "PythonALS"
+    conf = SparkConf().setAppName(appName)
+    sc = SparkContext(conf=conf)
 
-    sc = SparkContext(appName="PythonALS")
-    M = int(sys.argv[1]) if len(sys.argv) > 1 else NUM_SONG
-    U = int(sys.argv[2]) if len(sys.argv) > 2 else NUM_USER
-    F = int(sys.argv[3]) if len(sys.argv) > 3 else K
-    ITERATIONS = int(sys.argv[4]) if len(sys.argv) > 4 else NUM_ITER
-    partitions = int(sys.argv[5]) if len(sys.argv) > 5 else NUM_PARTITION
+    M = NUM_SONG
+    U = NUM_USER
+    F = K
+    ITERATIONS = NUM_ITER
+    partitions = NUM_PARTITION
 
     print "Running ALS with M=%d, U=%d, F=%d, iters=%d, partitions=%d\n" % (
-        M, U, F, ITERATIONS, partitions)
+        M, U, F, ITERATIONS, partitions
+    )
 
     R, nonzero = load_matrix("sorted_train_data.txt", sc)
     R, validates = partition_train_data(
@@ -212,27 +255,52 @@ if __name__ == "__main__":
     )
     us, ms = svd(R)
 
+    print "Start broadcast"
     Rb = sc.broadcast(R)
     msb = sc.broadcast(ms)
     usb = sc.broadcast(us)
+    print "End broadcast"
+
+    # for i in range(ITERATIONS):
+    #     ms = sc.parallelize(range(M), partitions) \
+    #            .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T)) \
+    #            .collect()
+    #     # collect() returns a list, so array ends up being
+    #     # a 3-d array, we take the first 2 dims for the matrix
+    #     ms = np.array(ms)[:, :, 0]
+    #     msb = sc.broadcast(ms)
+
+    #     us = sc.parallelize(range(U), partitions) \
+    #            .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value)) \
+    #            .collect()
+    #     us = np.array(us)[:, :, 0]
+    #     usb = sc.broadcast(us)
+
+    #     error = rmse(R, ms, us)
+    #     print "Iteration %d:" % i
+    #     print "\nRMSE: %5.4f\n" % error
+
+    # sc.stop()
 
     for i in range(ITERATIONS):
-        mat = usb.value
-        XtX = mat.T.dot(mat)
+        print "ITERATIONS:", i
+
+        print "Start update ms"
+        XtX = sparse.csr_matrix(us.T.dot(us))
+        XtXb = sc.broadcast(XtX)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x:
-                    update(x, msb.value[x, :], usb.value, Rb.value, XtX)) \
+               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value)) \
                .collect()
         # collect() returns a list, so array ends up being
         # a 3-d array, we take the first 2 dims for the matrix
         ms = np.array(ms)[:, :, 0]
         msb = sc.broadcast(ms)
 
-        mat = msb.value
-        XtX = mat.T.dot(mat)
+        print "Start update us"
+        YtY = sparse.csr_matrix(ms.T.dot(ms))
+        YtYb = sc.broadcast(YtY)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x:
-                    update(x, usb.value[x, :], msb.value, Rb.value.T, XtX)) \
+               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value)) \
                .collect()
         us = np.array(us)[:, :, 0]
         usb = sc.broadcast(us)
