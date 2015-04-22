@@ -37,7 +37,7 @@ np.random.seed(42)
 NUM_USER = 100000
 NUM_SONG = 1000
 NUM_ITER = 5
-NUM_PARTITION = 10
+NUM_PARTITION = 5
 K = 40
 
 # dirty global
@@ -157,7 +157,7 @@ def evaluate_error(counts, user_vectors, item_vectors):
                                           counts_coo.data):
         # print user_vectors[row, :]
         # print item_vectors[col, :]
-        predict = user_vectors[row, :].dot(item_vectors[col, :].T)[0, 0]
+        predict = user_vectors[row, :].dot(item_vectors[col, :].T)
         if count > 0:
             err += ((1 + count) * (predict - 1) ** 2)
         else:
@@ -169,56 +169,23 @@ def evaluate_error(counts, user_vectors, item_vectors):
         return err / numerator
 
 
-def update(i, vec, fixed_vecs, R, YtY, user):
-    # uu = mat.shape[0]
-    # ff = mat.shape[1]
-
-    # XtX = mat.T.dot(mat)
-    # Xty = mat.T.dot(R[i, :].toarray().T)
-    # lambda_eye = LAMBDA * uu * sparse.eye(ff)
-    # # abc = XtX.dot(lambda_eye)
-    # bcd = mat.T.dot(LAMBDA * sparse.eye(uu))
-    # # for j in range(ff):
-    # #     XtX[j, j] += LAMBDA * uu
-
-    # return np.linalg.solve(XtX, Xty)
-
-    # print '1'
+def update(i, vec, fixed_vecs, R, YtY, user, eye, lambda_eye):
     if user:
         num_fixed = NUM_USER
     else:
         num_fixed = NUM_SONG
 
     num_factors = K
-    # fixed_vecs = sparse.csr_matrix(mat)
-    # print '2'
-    eye = sparse.eye(num_fixed)
-    lambda_eye = LAMBDA * sparse.eye(num_factors)
-    # print '3'
     counts_i = R[i, :].toarray()
     CuI = sparse.diags(counts_i, [0])
     pu = counts_i.copy()
     pu[np.where(pu != 0)] = 1.0
-    # print '4', CuI.shape[0], CuI.shape[1]
-    # print '4', mat.shape[0], mat.shape[1]
-
-    # YTCuI = mat.copy()
-    # for i in range(num_fixed):
-    #     YTCuI[i, :] = counts_i[0, i] * YTCuI[i, :]
-    # YTCuIY = YTCuI.T.dot(mat)
-    # YTCupu = sparse.csr_matrix(mat).T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
     
-    # print "4"
     YTCuIY = fixed_vecs.T.dot(CuI).dot(fixed_vecs)
-    # print "5"
     YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
     
-    # print '6'
     return spsolve(YtY + YTCuIY + lambda_eye, YTCupu)
-    # result = np.linalg.solve(YTCuIY + lambda_eye, YTCupu)
-    # print '7'
-    # return result
-
+    
 # def rmse(R, ms, us):
 #     diff = R - ms.dot(us.T)
 #     return np.sqrt(np.sum(np.power(diff, 2)) / NUM_SONG * NUM_USER)
@@ -268,6 +235,10 @@ if __name__ == "__main__":
     Rb = sc.broadcast(R)
     msb = sc.broadcast(ms)
     usb = sc.broadcast(us)
+    eye_ub = sc.broadcast(sparse.eye(NUM_USER))
+    eye_mb = sc.broadcast(sparse.eye(NUM_SONG))
+    lambda_eyeb = sc.broadcast(LAMBDA * sparse.eye(K))
+
     print "End broadcast"
 
     # for i in range(ITERATIONS):
@@ -299,31 +270,33 @@ if __name__ == "__main__":
         XtX = sparse.csr_matrix(us.T.dot(us))
         XtXb = sc.broadcast(XtX)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True)) \
+               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True, eye_ub, lambda_eyeb)) \
                .collect()
         # collect() returns a list, so array ends up being
         # a 3-d array, we take the first 2 dims for the matrix
         # print np.array(ms).shape
         # ms = np.array(ms)[:, :, 0]
-        ms = sparse.csr_matrix(np.array(ms))
+        ms_arr = np.array(ms)
+        ms = sparse.csr_matrix(ms_arr)
         msb = sc.broadcast(ms)
 
         print "Start update us"
         YtY = sparse.csr_matrix(ms.T.dot(ms))
         YtYb = sc.broadcast(YtY)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False)) \
+               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False, eye_mb, lambda_eyeb)) \
                .collect()
         # print np.array(us).shape
         # print us.shape
         # us = np.array(us)[:, :, 0]
-        us = sparse.csr_matrix(np.array(us))
+        us_arr = np.array(us)
+        us = sparse.csr_matrix(us_arr)
         usb = sc.broadcast(us)
 
         print "Start evaluating:"
 
-        train_error = evaluate_error(R, us, ms)
-        validate_error = evaluate_error(validates, us, ms)
+        train_error = evaluate_error(R, us_arr, ms_arr)
+        validate_error = evaluate_error(validates, us_arr, ms_arr)
         print "Iteration %d:" % i
         print "\TrainERR: %5.4f, \ValidateERR: %5.4f\n" % (
             train_error, validate_error)
