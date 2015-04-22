@@ -185,23 +185,6 @@ def update(i, vec, fixed_vecs, R, YtY, user, eye, lambda_eye):
     YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
     
     return spsolve(YtY + YTCuIY + lambda_eye, YTCupu)
-    
-# def rmse(R, ms, us):
-#     diff = R - ms.dot(us.T)
-#     return np.sqrt(np.sum(np.power(diff, 2)) / NUM_SONG * NUM_USER)
-
-
-# def update(i, vec, mat, ratings):
-#     uu = mat.shape[0]
-#     ff = mat.shape[1]
-
-#     XtX = mat.T.dot(mat)
-#     Xty = mat.T.dot(ratings[i, :].toarray().T)
-
-#     for j in range(ff):
-#         XtX[j, j] += LAMBDA * uu
-
-#     return np.linalg.solve(XtX, Xty)
 
 if __name__ == "__main__":
 
@@ -228,8 +211,12 @@ if __name__ == "__main__":
         nonzero,
     )
     us, ms = svd(R)
-    us = sparse.csr_matrix(us)
-    ms = sparse.csr_matrix(ms)
+    
+    us_arr = us
+    ms_arr = ms
+    
+    us = sparse.csr_matrix(us_arr)
+    ms = sparse.csr_matrix(ms_arr)
 
     print "Start broadcast"
     Rb = sc.broadcast(R)
@@ -241,54 +228,37 @@ if __name__ == "__main__":
 
     print "End broadcast"
 
-    # for i in range(ITERATIONS):
-    #     ms = sc.parallelize(range(M), partitions) \
-    #            .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T)) \
-    #            .collect()
-    #     # collect() returns a list, so array ends up being
-    #     # a 3-d array, we take the first 2 dims for the matrix
-    #     ms = np.array(ms)[:, :, 0]
-    #     msb = sc.broadcast(ms)
-
-    #     us = sc.parallelize(range(U), partitions) \
-    #            .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value)) \
-    #            .collect()
-    #     us = np.array(us)[:, :, 0]
-    #     usb = sc.broadcast(us)
-
-    #     error = rmse(R, ms, us)
-    #     print "Iteration %d:" % i
-    #     print "\nRMSE: %5.4f\n" % error
-
-    # sc.stop()
     total_0 = time.time()
 
     for i in range(ITERATIONS):
         print "ITERATIONS:", i
         t0 = time.time()
         print "Start update ms"
-        XtX = sparse.csr_matrix(us.T.dot(us))
+        XtX = sparse.csr_matrix(us_arr.T.dot(us_arr))
         XtXb = sc.broadcast(XtX)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True, eye_ub.value, lambda_eyeb.value)) \
+               .map(lambda x: update(
+                    x, msb.value[x, :], 
+                    usb.value, Rb.value.T, 
+                    XtXb.value, True, 
+                    eye_ub.value, lambda_eyeb.value)) \
                .collect()
-        # collect() returns a list, so array ends up being
-        # a 3-d array, we take the first 2 dims for the matrix
-        # print np.array(ms).shape
-        # ms = np.array(ms)[:, :, 0]
+        
         ms_arr = np.array(ms)
         ms = sparse.csr_matrix(ms_arr)
         msb = sc.broadcast(ms)
 
         print "Start update us"
-        YtY = sparse.csr_matrix(ms.T.dot(ms))
+        YtY = sparse.csr_matrix(ms_arr.T.dot(ms_arr))
         YtYb = sc.broadcast(YtY)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False, eye_mb.value, lambda_eyeb.value)) \
+               .map(lambda x: update(
+                    x, usb.value[x, :], 
+                    msb.value, Rb.value, 
+                    YtYb.value, False, 
+                    eye_mb.value, lambda_eyeb.value)) \
                .collect()
-        # print np.array(us).shape
-        # print us.shape
-        # us = np.array(us)[:, :, 0]
+        
         us_arr = np.array(us)
         us = sparse.csr_matrix(us_arr)
         usb = sc.broadcast(us)

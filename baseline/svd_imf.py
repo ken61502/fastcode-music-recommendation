@@ -160,11 +160,11 @@ class ImplicitMF():
     def iteration(self, user, fixed_vecs):
         num_solve = self.num_users if user else self.num_items
         num_fixed = fixed_vecs.shape[0]
-        YTY = fixed_vecs.T.dot(fixed_vecs)
+        YTY = sparse.csr_matrix(fixed_vecs.T.dot(fixed_vecs))
         eye = sparse.eye(num_fixed)
         lambda_eye = self.reg_param * sparse.eye(self.num_factors)
         solve_vecs = np.zeros((num_solve, self.num_factors))
-
+        mat = sparse.csr_matrix(fixed_vecs)
         if DETAIL_MODE:
             t = time.time()
         for i in xrange(num_solve):
@@ -175,8 +175,8 @@ class ImplicitMF():
             CuI = sparse.diags(counts_i, [0])
             pu = counts_i.copy()
             pu[np.where(pu != 0)] = 1.0
-            YTCuIY = fixed_vecs.T.dot(CuI).dot(fixed_vecs)
-            YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+            YTCuIY = mat.T.dot(CuI).dot(mat)
+            YTCupu = mat.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
             xu = spsolve(YTY + YTCuIY + lambda_eye, YTCupu)
             solve_vecs[i] = xu
             if DETAIL_MODE and i % 1000 == 0:
@@ -195,7 +195,7 @@ class ImplicitMF():
 
 if __name__ == '__main__':
     counts, nonzero = load_matrix(
-        '../../data/sorted_train_data.txt',
+        'sorted_train_data.txt',
     )
     counts, validates = partition_train_data(
         counts,
