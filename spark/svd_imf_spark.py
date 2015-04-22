@@ -113,8 +113,8 @@ def load_matrix(
     total = 0.0
     num_zeros = num_users * num_items
 
-    url = "s3n://spark-mllib/fastcode/data/" + filename
-    # url = "../../data/" + filename
+    # url = "s3n://spark-mllib/fastcode/data/" + filename
+    url = "hdfs://localhost:9000/data/" + filename
     print 'loading... ' + url
     # data = sc.textFile(url)
     # data.map(lambda l: fill_maxtrix(l, counts))
@@ -155,9 +155,9 @@ def evaluate_error(counts, user_vectors, item_vectors):
     for row, col, count in itertools.izip(counts_coo.row,
                                           counts_coo.col,
                                           counts_coo.data):
-        print user_vectors[row, :]
-        print item_vectors[col, :]
-        predict = user_vectors[row, :].dot(item_vectors[col, :])
+        # print user_vectors[row, :]
+        # print item_vectors[col, :]
+        predict = user_vectors[row, :].toarray().dot(item_vectors[col, :].toarray())
         if count > 0:
             err += ((1 + count) * (predict - 1) ** 2)
         else:
