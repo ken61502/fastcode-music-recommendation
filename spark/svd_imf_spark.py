@@ -157,7 +157,7 @@ def evaluate_error(counts, user_vectors, item_vectors):
                                           counts_coo.data):
         # print user_vectors[row, :]
         # print item_vectors[col, :]
-        predict = user_vectors[row, :].toarray().dot(item_vectors[col, :].toarray())
+        predict = user_vectors[row, :].toarray()[0].dot(item_vectors[col, :].toarray()[0])
         if count > 0:
             err += ((1 + count) * (predict - 1) ** 2)
         else:
@@ -320,8 +320,8 @@ if __name__ == "__main__":
         us = sparse.csr_matrix(np.array(us))
         usb = sc.broadcast(us)
 
-        train_error = evaluate_error(R, ms, us)
-        validate_error = evaluate_error(validates, ms, us)
+        train_error = evaluate_error(R, us, ms)
+        validate_error = evaluate_error(validates, us, ms)
         print "Iteration %d:" % i
         print "\TrainERR: %5.4f, \ValidateERR: %5.4f\n" % (
             train_error, validate_error)
