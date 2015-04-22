@@ -113,8 +113,8 @@ def load_matrix(
     total = 0.0
     num_zeros = num_users * num_items
 
-    # url = "s3n://spark-mllib/fastcode/data/" + filename
-    url = "hdfs://localhost:9000/data/" + filename
+    url = "s3n://spark-mllib/fastcode/data/" + filename
+    # url = "hdfs://localhost:9000/data/" + filename
     print 'loading... ' + url
     # data = sc.textFile(url)
     # data.map(lambda l: fill_maxtrix(l, counts))
@@ -320,8 +320,9 @@ if __name__ == "__main__":
         us = sparse.csr_matrix(np.array(us))
         usb = sc.broadcast(us)
 
-        train_error = evaluate_error(R, ms, us)
-        validate_error = evaluate_error(validates, ms, us)
+        print "Start evaluating:"
+        train_error = evaluate_error(R, us, ms)
+        validate_error = evaluate_error(validates, us, ms)
         print "Iteration %d:" % i
         print "\TrainERR: %5.4f, \ValidateERR: %5.4f\n" % (
             train_error, validate_error)
