@@ -288,10 +288,11 @@ if __name__ == "__main__":
     #     print "\nRMSE: %5.4f\n" % error
 
     # sc.stop()
+    total_0 = time.time()
 
     for i in range(ITERATIONS):
         print "ITERATIONS:", i
-
+        t0 = time.time()
         print "Start update ms"
         XtX = sparse.csr_matrix(us.T.dot(us))
         XtXb = sc.broadcast(XtX)
@@ -322,5 +323,9 @@ if __name__ == "__main__":
         print "Iteration %d:" % i
         print "\TrainERR: %5.4f, \ValidateERR: %5.4f\n" % (
             train_error, validate_error)
+        t1 = time.time()
+        print 'Finished in %f seconds\n' % (t1 - t0)
 
+    total_1 = time.time()
+    print 'ALS Finished in %f seconds\n' % (total_1 - total_0)
     sc.stop()
