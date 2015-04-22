@@ -145,13 +145,13 @@ class ImplicitMF():
 
         for i in xrange(self.num_iterations):
             t0 = time.time()
-            print 'Solving for user vectors...'
-            self.user_vectors = self.iteration(
-                True, sparse.csr_matrix(self.item_vectors)
-            )
             print 'Solving for item vectors...'
             self.item_vectors = self.iteration(
                 False, sparse.csr_matrix(self.user_vectors)
+            )
+            print 'Solving for user vectors...'
+            self.user_vectors = self.iteration(
+                True, sparse.csr_matrix(self.item_vectors)
             )
             self.eval(i + 1)
             t1 = time.time()
