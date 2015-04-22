@@ -155,6 +155,8 @@ def evaluate_error(counts, user_vectors, item_vectors):
     for row, col, count in itertools.izip(counts_coo.row,
                                           counts_coo.col,
                                           counts_coo.data):
+        print user_vectors[row, :]
+        print item_vectors[col, :]
         predict = user_vectors[row, :].dot(item_vectors[col, :])
         if count > 0:
             err += ((1 + count) * (predict - 1) ** 2)
