@@ -167,7 +167,7 @@ def evaluate_error(counts, user_vectors, item_vectors):
         return err / numerator
 
 
-def update(i, vec, mat, R, YtY):
+def update(i, vec, fixed_vecs, R, YtY, user):
     # uu = mat.shape[0]
     # ff = mat.shape[1]
 
@@ -182,8 +182,13 @@ def update(i, vec, mat, R, YtY):
     # return np.linalg.solve(XtX, Xty)
 
     # print '1'
-    num_fixed = mat.shape[0]
-    num_factors = mat.shape[1]
+    if user:
+        num_fixed = NUM_USER
+    else:
+        num_fixed = NUM_SONG
+
+    num_factors = K
+    # fixed_vecs = sparse.csr_matrix(mat)
     # print '2'
     eye = sparse.eye(num_fixed)
     lambda_eye = LAMBDA * sparse.eye(num_factors)
@@ -195,17 +200,17 @@ def update(i, vec, mat, R, YtY):
     # print '4', CuI.shape[0], CuI.shape[1]
     # print '4', mat.shape[0], mat.shape[1]
 
-    YTCuI = mat.copy()
-    print counts_i.shape
-    for i in range(num_fixed):
-        YTCuI[i, :] = counts_i[0, i] * YTCuI[i, :]
-
-    # YTCuI = mat.T.dot(CuI)
-
-    # print '4.5', YTCuI.shape[0], YTCuI.shape[1]
-    YTCuIY = YTCuI.T.dot(mat)
-    # print '5'
-    YTCupu = sparse.csr_matrix(mat).T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+    # YTCuI = mat.copy()
+    # for i in range(num_fixed):
+    #     YTCuI[i, :] = counts_i[0, i] * YTCuI[i, :]
+    # YTCuIY = YTCuI.T.dot(mat)
+    # YTCupu = sparse.csr_matrix(mat).T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+    
+    # print "4"
+    YTCuIY = fixed_vecs.T.dot(CuI).dot(fixed_vecs)
+    # print "5"
+    YTCupu = fixed_vecs.T.dot(CuI + eye).dot(sparse.csr_matrix(pu).T)
+    
     # print '6'
     return spsolve(YtY + YTCuIY + lambda_eye, YTCupu)
     # result = np.linalg.solve(YTCuIY + lambda_eye, YTCupu)
@@ -254,6 +259,8 @@ if __name__ == "__main__":
         nonzero,
     )
     us, ms = svd(R)
+    us = sparse.csr_matrix(us)
+    ms = sparse.csr_matrix(ms)
 
     print "Start broadcast"
     Rb = sc.broadcast(R)
@@ -289,20 +296,25 @@ if __name__ == "__main__":
         XtX = sparse.csr_matrix(us.T.dot(us))
         XtXb = sc.broadcast(XtX)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value)) \
+               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True)) \
                .collect()
         # collect() returns a list, so array ends up being
         # a 3-d array, we take the first 2 dims for the matrix
-        ms = np.array(ms)[:, :, 0]
+        # print np.array(ms).shape
+        # ms = np.array(ms)[:, :, 0]
+        ms = sparse.csr_matrix(np.array(ms))
         msb = sc.broadcast(ms)
 
         print "Start update us"
         YtY = sparse.csr_matrix(ms.T.dot(ms))
         YtYb = sc.broadcast(YtY)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value)) \
+               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False)) \
                .collect()
-        us = np.array(us)[:, :, 0]
+        # print np.array(us).shape
+        # print us.shape
+        # us = np.array(us)[:, :, 0]
+        us = sparse.csr_matrix(np.array(us))
         usb = sc.broadcast(us)
 
         train_error = evaluate_error(R, ms, us)
