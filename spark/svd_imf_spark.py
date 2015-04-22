@@ -33,7 +33,7 @@ from scipy.sparse.linalg import svds
 from scipy.sparse.linalg import spsolve
 
 LAMBDA = 0.8   # regularization
-np.random.seed(42)
+# np.random.seed(42)
 NUM_USER = 100000
 NUM_SONG = 1000
 NUM_ITER = 5
@@ -55,7 +55,7 @@ def fill_maxtrix(line, counts):
     item = int(line[1]) - 1
     count = float(line[2])
 
-    if count > 0.0:
+    if count > 0:
         counts[user, item] = count
         total += count
         num_zeros -= 1
@@ -172,11 +172,13 @@ def evaluate_error(counts, user_vectors, item_vectors):
 def update(i, vec, fixed_vecs, R, YtY, user, eye, lambda_eye):
     if user:
         num_fixed = NUM_USER
+        counts_i = R[:, i].T.toarray()
     else:
         num_fixed = NUM_SONG
+        counts_i = R[i, :].toarray()
 
     num_factors = K
-    counts_i = R[i, :].toarray()
+    # counts_i = R[i, :].toarray()
     CuI = sparse.diags(counts_i, [0])
     pu = counts_i.copy()
     pu[np.where(pu != 0)] = 1.0
@@ -215,6 +217,9 @@ if __name__ == "__main__":
     us_arr = us
     ms_arr = ms
     
+    train_error = evaluate_error(R, us_arr, ms_arr)
+    print '[SVD] Training Error:', train_error, "\n"
+
     us = sparse.csr_matrix(us_arr)
     ms = sparse.csr_matrix(ms_arr)
 
@@ -239,7 +244,7 @@ if __name__ == "__main__":
         ms = sc.parallelize(range(M), partitions) \
                .map(lambda x: update(
                     x, msb.value[x, :], 
-                    usb.value, Rb.value.T, 
+                    usb.value, Rb.value, 
                     XtXb.value, True, 
                     eye_ub.value, lambda_eyeb.value)) \
                .collect()
