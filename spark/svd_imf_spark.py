@@ -32,12 +32,12 @@ import scipy.sparse as sparse
 from scipy.sparse.linalg import svds
 from scipy.sparse.linalg import spsolve
 
-LAMBDA = 0.01   # regularization
+LAMBDA = 0.8   # regularization
 np.random.seed(42)
 NUM_USER = 100000
 NUM_SONG = 1000
 NUM_ITER = 5
-NUM_PARTITION = 2
+NUM_PARTITION = 10
 K = 40
 
 # dirty global
@@ -157,7 +157,7 @@ def evaluate_error(counts, user_vectors, item_vectors):
                                           counts_coo.data):
         # print user_vectors[row, :]
         # print item_vectors[col, :]
-        predict = user_vectors[row, :].toarray()[0].dot(item_vectors[col, :].toarray()[0])
+        predict = user_vectors[row, :].dot(item_vectors[col, :].T)[0, 0]
         if count > 0:
             err += ((1 + count) * (predict - 1) ** 2)
         else:
