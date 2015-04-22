@@ -270,7 +270,7 @@ if __name__ == "__main__":
         XtX = sparse.csr_matrix(us.T.dot(us))
         XtXb = sc.broadcast(XtX)
         ms = sc.parallelize(range(M), partitions) \
-               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True, eye_ub, lambda_eyeb)) \
+               .map(lambda x: update(x, msb.value[x, :], usb.value, Rb.value.T, XtXb.value, True, eye_ub.value, lambda_eyeb.value)) \
                .collect()
         # collect() returns a list, so array ends up being
         # a 3-d array, we take the first 2 dims for the matrix
@@ -284,7 +284,7 @@ if __name__ == "__main__":
         YtY = sparse.csr_matrix(ms.T.dot(ms))
         YtYb = sc.broadcast(YtY)
         us = sc.parallelize(range(U), partitions) \
-               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False, eye_mb, lambda_eyeb)) \
+               .map(lambda x: update(x, usb.value[x, :], msb.value, Rb.value, YtYb.value, False, eye_mb.value, lambda_eyeb.value)) \
                .collect()
         # print np.array(us).shape
         # print us.shape
